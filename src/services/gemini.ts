@@ -12,7 +12,7 @@ export const generateChatResponse = async (
   }
 ): Promise<string> => {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     let prompt = `You are KeynesAI, a professional finance analyst assistant. Your role is to help users with financial analysis, data interpretation, and insights.
 
