@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Send, Sparkles, Paperclip, X, Bot, User, BarChart3 } from "lucide-react";
+import { Send, Sparkles, Paperclip, X, Bot, User, BarChart3, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useApp } from "@/contexts/AppContext";
+import { generateChatResponse } from "@/services/gemini";
 
 interface Message {
   id: string;
@@ -23,6 +24,7 @@ export const ChatPanel = () => {
   const [selectedMaterials, setSelectedMaterials] = useState<Set<string>>(new Set());
   const [showMaterialSelector, setShowMaterialSelector] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleMaterialToggle = (materialId: string) => {
     setSelectedMaterials((prev) => {
@@ -36,8 +38,9 @@ export const ChatPanel = () => {
     });
   };
 
-  const handleSendMessage = () => {
+  const handleSendMessage = async () => {
     if (!message.trim() && selectedMaterials.size === 0) return;
+    if (isLoading) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -48,36 +51,26 @@ export const ChatPanel = () => {
     };
 
     setMessages((prev) => [...prev, userMessage]);
+    setIsLoading(true);
 
-    // Simulate AI response
-    setTimeout(() => {
+    // Clear input immediately for better UX
+    const currentMessage = message;
+    const currentMaterials = new Set(selectedMaterials);
+    setMessage("");
+    setSelectedMaterials(new Set());
+    setShowMaterialSelector(false);
+
+    try {
       const attachedMaterialNames = materials
-        .filter((m) => selectedMaterials.has(m.id))
+        .filter((m) => currentMaterials.has(m.id))
         .map((m) => m.name);
 
-      let responseContent = "";
-      if (message.toLowerCase().includes("analysis") || message.toLowerCase().includes("result")) {
-        // Check if user is asking about analysis results
-        const analysisKeys = Object.keys(analysisResults);
-        if (analysisKeys.length > 0) {
-          const latestAnalysis = analysisResults[analysisKeys[analysisKeys.length - 1]];
-          responseContent = `Based on the ${latestAnalysis.action} analysis, here are the key findings:\n\n`;
-          if (latestAnalysis.data.summary) {
-            responseContent += latestAnalysis.data.summary;
-          } else if (latestAnalysis.data.analysis) {
-            responseContent += latestAnalysis.data.analysis;
-          } else {
-            responseContent += "The analysis has been completed successfully. You can view the detailed results in the Quick Actions panel.";
-          }
-        } else {
-          responseContent = "No analysis results are available yet. Please run a quick action analysis first.";
-        }
-      } else if (attachedMaterialNames.length > 0) {
-        responseContent = `I've analyzed the attached materials: ${attachedMaterialNames.join(", ")}. `;
-        responseContent += `Based on the content, I can help you with financial analysis, data extraction, or answer specific questions about these documents.`;
-      } else {
-        responseContent = "I'm here to help you with your financial analysis. You can ask me questions about your materials or the results from quick actions. Try attaching materials or asking about analysis results!";
-      }
+      const context = {
+        materials: attachedMaterialNames.length > 0 ? attachedMaterialNames : undefined,
+        analysisResults: Object.keys(analysisResults).length > 0 ? analysisResults : undefined,
+      };
+
+      const responseContent = await generateChatResponse(currentMessage, context);
 
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -87,14 +80,20 @@ export const ChatPanel = () => {
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
-    }, 1000);
-
-    setMessage("");
-    setSelectedMaterials(new Set());
-    setShowMaterialSelector(false);
+    } catch (error) {
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: error instanceof Error ? error.message : "Sorry, I encountered an error. Please try again.",
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSendMessage();
@@ -145,7 +144,8 @@ export const ChatPanel = () => {
               </div>
             </div>
           ) : (
-            messages.map((msg) => (
+            <>
+              {messages.map((msg) => (
               <div
                 key={msg.id}
                 className={`flex gap-3 ${
@@ -192,7 +192,21 @@ export const ChatPanel = () => {
                   </div>
                 )}
               </div>
-            ))
+              ))}
+              {isLoading && (
+                <div className="flex gap-3 justify-start">
+                  <div className="p-2 rounded-full bg-primary/10 flex-shrink-0">
+                    <Bot className="h-4 w-4 text-primary" />
+                  </div>
+                  <Card className="max-w-[80%] p-3 bg-secondary">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                      <p className="text-sm text-muted-foreground">Thinking...</p>
+                    </div>
+                  </Card>
+                </div>
+              )}
+            </>
           )}
         </div>
       </ScrollArea>
@@ -281,15 +295,19 @@ export const ChatPanel = () => {
             placeholder="Ask a question or attach materials..."
             value={message}
             onChange={(e) => setMessage(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onKeyDown={handleKeyDown}
             className="flex-1"
           />
           <Button
             size="icon"
             onClick={handleSendMessage}
-            disabled={!message.trim() && selectedMaterials.size === 0}
+            disabled={(!message.trim() && selectedMaterials.size === 0) || isLoading}
           >
-            <Send className="h-4 w-4" />
+            {isLoading ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
           </Button>
         </div>
         {selectedMaterials.size > 0 && (
