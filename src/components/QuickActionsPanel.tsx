@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Sparkles, TrendingUp, PieChart, BarChart3, Calculator, FileSearch, CheckCircle2 } from "lucide-react";
+import { Sparkles, TrendingUp, PieChart, BarChart3, Calculator, FileSearch, CheckCircle2, LineChart } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card } from "@/components/ui/card";
@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Separator } from "@/components/ui/separator";
 import { useApp } from "@/contexts/AppContext";
+import { runEfficientFrontier } from "@/services/efficientFrontier";
 
 interface QuickAction {
   id: string;
@@ -46,6 +47,12 @@ const quickActions: QuickAction[] = [
     description: "Compare financial metrics across periods",
     icon: <BarChart3 className="h-4 w-4" />,
   },
+  {
+    id: "efficient-frontier",
+    name: "Efficient Frontier Analysis",
+    description: "Run portfolio weights optimization from an Excel/CSV returns sheet",
+    icon: <LineChart className="h-4 w-4" />,
+  },
 ];
 
 export const QuickActionsPanel = () => {
@@ -53,6 +60,7 @@ export const QuickActionsPanel = () => {
   const [selectedAction, setSelectedAction] = useState<string | null>(null);
   const [selectedMaterials, setSelectedMaterials] = useState<Set<string>>(new Set());
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   // Only show ready materials
   const readyMaterials = materials.filter((m) => m.status === "ready");
@@ -81,8 +89,35 @@ export const QuickActionsPanel = () => {
     if (!selectedAction || selectedMaterials.size === 0) return;
 
     setIsAnalyzing(true);
+    setErrorMessage(null);
 
-    // Simulate analysis
+    // Special handling for Efficient Frontier Analysis: send Excel/CSV to backend
+    if (selectedAction === "efficient-frontier") {
+      try {
+        const selected = readyMaterials.filter((m) => selectedMaterials.has(m.id));
+        // Expect exactly one Excel/CSV file
+        const excelLike = selected.filter((m) => m.type === "Excel" && m.file instanceof File);
+        if (excelLike.length !== 1) {
+          throw new Error("Please select exactly one Excel/CSV file for Efficient Frontier Analysis.");
+        }
+        const file = excelLike[0].file as File;
+        const apiResult = await runEfficientFrontier(file);
+        const result = {
+          action: quickActions.find((a) => a.id === selectedAction)?.name || "Efficient Frontier Analysis",
+          materials: selected.map((m) => m.name),
+          data: apiResult,
+          timestamp: new Date(),
+        };
+        addAnalysisResult(selectedAction, result);
+      } catch (err) {
+        setErrorMessage(err instanceof Error ? err.message : "Failed to run Efficient Frontier Analysis.");
+      } finally {
+        setIsAnalyzing(false);
+      }
+      return;
+    }
+
+    // Default: simulate analysis for other quick actions
     setTimeout(() => {
       const result = {
         action: quickActions.find((a) => a.id === selectedAction)?.name,
@@ -217,6 +252,9 @@ export const QuickActionsPanel = () => {
                 </Button>
               )}
             </div>
+            {errorMessage && (
+              <div className="text-xs text-red-500 mb-2">{errorMessage}</div>
+            )}
             {readyMaterials.length === 0 ? (
               <p className="text-xs text-muted-foreground">
                 No materials available. Upload files in the Materials section.
@@ -284,7 +322,32 @@ export const QuickActionsPanel = () => {
               <Separator />
               <Card className="p-4">
                 <div className="space-y-4">
-                  {Object.entries(currentResult.data).map(([key, value]) => {
+                  {/* Special rendering for Efficient Frontier: weights table */}
+                  {selectedAction === "efficient-frontier" && currentResult.data?.weights ? (
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground uppercase mb-2">
+                        Calculated Weights
+                      </p>
+                      <div className="overflow-auto border border-border rounded">
+                        <table className="w-full text-sm">
+                          <thead className="bg-secondary/50">
+                            <tr>
+                              <th className="text-left p-2">Fund</th>
+                              <th className="text-left p-2">Weight</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {currentResult.data.weights.map((row: { fund: string; weight: number }, idx: number) => (
+                              <tr key={idx} className="border-t border-border">
+                                <td className="p-2">{row.fund}</td>
+                                <td className="p-2">{row.weight.toFixed(6)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  ) : Object.entries(currentResult.data).map(([key, value]) => {
                     if (typeof value === "string") {
                       return (
                         <div key={key}>

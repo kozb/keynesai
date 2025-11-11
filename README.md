@@ -71,3 +71,30 @@ Yes, you can!
 To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
 
 Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+
+## Efficient Frontier Analysis (Firebase/Cloud Run)
+
+This app can run the Efficient Frontier Analysis Python script on Firebase via Cloud Run:
+
+1) Build and deploy the Python service to Cloud Run
+
+```
+cd backend/python/analysis_service
+gcloud builds submit --tag gcr.io/PROJECT_ID/analysis-service
+gcloud run deploy analysis-service --image gcr.io/PROJECT_ID/analysis-service --platform managed --region REGION --allow-unauthenticated
+```
+
+2) Configure the frontend to call it
+
+Create a `.env` (or `.env.local`) in the repo root:
+
+```
+VITE_ANALYSIS_ENDPOINT=https://ANALYSIS-SERVICE-URL
+```
+
+3) Use the Quick Action
+
+- Upload an Excel/CSV returns file in Materials
+- Choose “Efficient Frontier Analysis”
+- Select exactly one Excel/CSV file and Run Analysis
+- The weights table will appear in the center panel
